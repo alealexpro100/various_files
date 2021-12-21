@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <path id="logo" d="M93 107c17-11 22-29 22-29L66 92zM40 85l8 31c23 5 38-5 38-5zM12 91c10 17 29 24 29 24L28 64zM3 50C0 73 8 85 8 85l27-44zM5 42l50-14-28-16C11 24 5 42 5 42zM72 3C51-1 34 8 34 8l46 27zM108 29C99 12 79 6 79 6l13 50zM117 70c3-23-5-35-5-35L85 80z" fill="#000"/>
+  <text id="text" x="38.7" y="82.9" font-family="Arial" font-size="64" font-weight="400" style="line-height:1.25;" fill="#000">
+    <tspan x="38.7" y="82.9">A</tspan>
+  </text>
+</svg>
