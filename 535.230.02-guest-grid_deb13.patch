@@ -1,0 +1,524 @@
+Patch for NVIDIA-GRID-Linux-KVM-535.230.02-539.19/Guest_Drivers/NVIDIA-Linux-x86_64-535.230.02-grid.run
+All patches copied and adapted from:
+https://salsa.debian.org/nvidia-team/nvidia-graphics-drivers.git tesla/debian/525.147.05-16
+Its dirty patch, but seems to be working (tested ONLY ollama).
+Note that it has build problems (only examples, there are many of them):
+vidia-modeset.o: warning: objtool: _nv000124kms+0x22: 'naked' return found in MITIGATION_RETHUNK build
+nvidia.o: warning: objtool: _nv015572rm+0x76: 'naked' return found in MITIGATION_RETHUNK build
+--- /root/vgpu-kvm-orig/kernel/Kbuild   2024-12-20 22:51:20.000000000 +0000
++++ ./kernel/Kbuild     2025-11-16 15:26:57.815351094 +0000
+@@ -79,66 +79,66 @@
+ # Define CFLAGS that apply to all the NVIDIA kernel modules. EXTRA_CFLAGS
+ # is deprecated since 2.6.24 in favor of ccflags-y, but we need to support
+ # older kernels which do not have ccflags-y. Newer kernels append
+-# $(EXTRA_CFLAGS) to ccflags-y for compatibility.
++# $(ccflags-y) to ccflags-y for compatibility.
+ #
+
+-EXTRA_CFLAGS += -I$(src)/common/inc
+-EXTRA_CFLAGS += -I$(src)
+-EXTRA_CFLAGS += -Wall $(DEFINES) $(INCLUDES) -Wno-cast-qual -Wno-error -Wno-format-extra-args
+-EXTRA_CFLAGS += -D__KERNEL__ -DMODULE -DNVRM
+-EXTRA_CFLAGS += -DNV_VERSION_STRING=\"535.230.02\"
++ccflags-y += -I$(src)/common/inc
++ccflags-y += -I$(src)
++ccflags-y += -Wall $(DEFINES) $(INCLUDES) -Wno-cast-qual -Wno-error -Wno-format-extra-args
++ccflags-y += -D__KERNEL__ -DMODULE -DNVRM
++ccflags-y += -DNV_VERSION_STRING=\"535.230.02\"
+
+ ifneq ($(SYSSRCHOST1X),)
+- EXTRA_CFLAGS += -I$(SYSSRCHOST1X)
++ ccflags-y += -I$(SYSSRCHOST1X)
+ endif
+
+-EXTRA_CFLAGS += -Wno-unused-function
++ccflags-y += -Wno-unused-function
+
+ ifneq ($(NV_BUILD_TYPE),debug)
+- EXTRA_CFLAGS += -Wuninitialized
++ ccflags-y += -Wuninitialized
+ endif
+
+-EXTRA_CFLAGS += -fno-strict-aliasing
++ccflags-y += -fno-strict-aliasing
+
+ ifeq ($(ARCH),arm64)
+- EXTRA_CFLAGS += -mstrict-align
++ ccflags-y += -mstrict-align
+ endif
+
+ ifeq ($(NV_BUILD_TYPE),debug)
+- EXTRA_CFLAGS += -g
+- EXTRA_CFLAGS += $(call cc-option,-gsplit-dwarf,)
++ ccflags-y += -g
++ ccflags-y += $(call cc-option,-gsplit-dwarf,)
+ endif
+
+-EXTRA_CFLAGS += -ffreestanding
++ccflags-y += -ffreestanding
+
+ ifeq ($(ARCH),arm64)
+- EXTRA_CFLAGS += -mgeneral-regs-only -march=armv8-a
+- EXTRA_CFLAGS += $(call cc-option,-mno-outline-atomics,)
++ ccflags-y += -mgeneral-regs-only -march=armv8-a
++ ccflags-y += $(call cc-option,-mno-outline-atomics,)
+ endif
+
+ ifeq ($(ARCH),x86_64)
+- EXTRA_CFLAGS += -mno-red-zone -mcmodel=kernel
++ ccflags-y += -mno-red-zone -mcmodel=kernel
+ endif
+
+ ifeq ($(ARCH),powerpc)
+- EXTRA_CFLAGS += -mlittle-endian -mno-strict-align -mno-altivec
++ ccflags-y += -mlittle-endian -mno-strict-align -mno-altivec
+ endif
+
+-EXTRA_CFLAGS += -DNV_UVM_ENABLE
+-EXTRA_CFLAGS += $(call cc-option,-Werror=undef,)
+-EXTRA_CFLAGS += -DNV_SPECTRE_V2=$(NV_SPECTRE_V2)
+-EXTRA_CFLAGS += -DNV_KERNEL_INTERFACE_LAYER
++ccflags-y += -DNV_UVM_ENABLE
++ccflags-y += $(call cc-option,-Werror=undef,)
++ccflags-y += -DNV_SPECTRE_V2=$(NV_SPECTRE_V2)
++ccflags-y += -DNV_KERNEL_INTERFACE_LAYER
+
+ #
+ # Detect SGI UV systems and apply system-specific optimizations.
+ #
+
+ ifneq ($(wildcard /proc/sgi_uv),)
+- EXTRA_CFLAGS += -DNV_CONFIG_X86_UV
++ ccflags-y += -DNV_CONFIG_X86_UV
+ endif
+
+ ifdef VGX_FORCE_VFIO_PCI_CORE
+- EXTRA_CFLAGS += -DNV_VGPU_FORCE_VFIO_PCI_CORE
++ ccflags-y += -DNV_VGPU_FORCE_VFIO_PCI_CORE
+ endif
+
+ #
+@@ -165,7 +165,7 @@
+
+ NV_CFLAGS_FROM_CONFTEST := $(shell $(NV_CONFTEST_CMD) build_cflags)
+
+-NV_CONFTEST_CFLAGS = $(NV_CFLAGS_FROM_CONFTEST) $(EXTRA_CFLAGS) -fno-pie
++NV_CONFTEST_CFLAGS = $(NV_CFLAGS_FROM_CONFTEST) $(ccflags-y) -fno-pie
+ NV_CONFTEST_CFLAGS += $(call cc-disable-warning,pointer-sign)
+ NV_CONFTEST_CFLAGS += $(call cc-option,-fshort-wchar,)
+
+From 02b610f30beaf3cb26d08265de229942a98e9855 Mon Sep 17 00:00:00 2001
+From: Andreas Beckmann <anbe@debian.org>
+Date: Mon, 26 May 2025 09:58:49 +0200
+Subject: [PATCH] backport nv_timer_delete_sync changes from 570.153.02
+
+---
+ common/inc/nv-timer.h                 | 9 +++++++++
+ nvidia-modeset/nvidia-modeset-linux.c | 7 ++++++-
+ nvidia-modeset/nvidia-modeset.Kbuild  | 1 +
+ nvidia/nv-nano-timer.c                | 7 ++++++-
+ nvidia/nv.c                           | 4 ++--
+ nvidia/nvidia.Kbuild                  | 2 ++
+ 6 files changed, 26 insertions(+), 4 deletions(-)
+
+diff --git a/common/inc/nv-timer.h b/common/inc/nv-timer.h
+index 6af49fb6..04204388 100644
+--- ./kernel/common/inc/nv-timer.h
++++ ./kernel/common/inc/nv-timer.h
+@@ -63,4 +63,13 @@ static inline void nv_timer_setup(struct nv_timer *nv_timer,
+ #endif
+ }
+ 
++static inline void nv_timer_delete_sync(struct timer_list *timer)
++{
++#if !defined(NV_BSD) && NV_IS_EXPORT_SYMBOL_PRESENT_timer_delete_sync
++    timer_delete_sync(timer);
++#else
++    del_timer_sync(timer);
++#endif
++}
++
+ #endif // __NV_TIMER_H__
+diff --git a/nvidia-modeset/nvidia-modeset-linux.c b/nvidia-modeset/nvidia-modeset-linux.c
+index d3788f45..679e169d 100644
+--- ./kernel/nvidia-modeset/nvidia-modeset-linux.c
++++ ./kernel/nvidia-modeset/nvidia-modeset-linux.c
+@@ -52,6 +52,7 @@
+ #include "nv-procfs.h"
+ #include "nv-kthread-q.h"
+ #include "nv-time.h"
++#include "nv-timer.h"
+ #include "nv-lock.h"
+ 
+ /*
+@@ -621,7 +622,7 @@ static void nvkms_kthread_q_callback(void *arg)
+      * pending timers and than waiting for workqueue callbacks.
+      */
+     if (timer->kernel_timer_created) {
+-        del_timer_sync(&timer->kernel_timer);
++        nv_timer_delete_sync(&timer->kernel_timer);
+     }
+ 
+     /*
+@@ -1595,7 +1596,11 @@ restart:
+              * completion, and we wait for queue completion with
+              * nv_kthread_q_stop below.
+              */
++#if !defined(NV_BSD) && NV_IS_EXPORT_SYMBOL_PRESENT_timer_delete_sync
++            if (timer_delete_sync(&timer->kernel_timer) == 1) {
++#else
+             if (del_timer_sync(&timer->kernel_timer) == 1) {
++#endif
+                 /*  We've deactivated timer so we need to clean after it */
+                 list_del(&timer->timers_list);
+ 
+diff --git a/nvidia-modeset/nvidia-modeset.Kbuild b/nvidia-modeset/nvidia-modeset.Kbuild
+index 4e328bae..7781c8ab 100644
+--- ./kernel/nvidia-modeset/nvidia-modeset.Kbuild
++++ ./kernel/nvidia-modeset/nvidia-modeset.Kbuild
+@@ -90,3 +90,4 @@ NV_CONFTEST_FUNCTION_COMPILE_TESTS += list_is_first
+ NV_CONFTEST_FUNCTION_COMPILE_TESTS += ktime_get_real_ts64
+ NV_CONFTEST_FUNCTION_COMPILE_TESTS += ktime_get_raw_ts64
+ NV_CONFTEST_FUNCTION_COMPILE_TESTS += acpi_video_backlight_use_native
++NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_timer_delete_sync
+diff --git a/nvidia/nv-nano-timer.c b/nvidia/nv-nano-timer.c
+index 3a37054e..6b6af38a 100644
+--- ./kernel/nvidia/nv-nano-timer.c
++++ ./kernel/nvidia/nv-nano-timer.c
+@@ -150,8 +150,13 @@ void NV_API_CALL nv_create_nano_timer(
+     nv_nstimer->nv_nano_timer_callback = nvidia_nano_timer_callback;
+ 
+ #if NV_NANO_TIMER_USE_HRTIMER
++#if NV_IS_EXPORT_SYMBOL_PRESENT_hrtimer_setup
++    hrtimer_setup(&nv_nstimer->hr_timer, &nv_nano_timer_callback_typed_data,
++                  CLOCK_MONOTONIC, HRTIMER_MODE_REL);
++#else
+     hrtimer_init(&nv_nstimer->hr_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+     nv_nstimer->hr_timer.function = nv_nano_timer_callback_typed_data;
++#endif // NV_IS_EXPORT_SYMBOL_PRESENT_hrtimer_setup
+ #else
+ #if defined(NV_TIMER_SETUP_PRESENT)
+     timer_setup(&nv_nstimer->jiffy_timer, nv_jiffy_timer_callback_typed_data, 0);
+@@ -209,7 +214,7 @@ void NV_API_CALL nv_cancel_nano_timer(
+ #if NV_NANO_TIMER_USE_HRTIMER
+     hrtimer_cancel(&nv_nstimer->hr_timer);
+ #else
+-    del_timer_sync(&nv_nstimer->jiffy_timer);
++    nv_timer_delete_sync(&nv_nstimer->jiffy_timer);
+ #endif
+ 
+ }
+diff --git a/nvidia/nv.c b/nvidia/nv.c
+index 77d606a5..aa09a273 100644
+--- ./kernel/nvidia/nv.c
++++ ./kernel/nvidia/nv.c
+@@ -3735,7 +3735,7 @@ int NV_API_CALL nv_stop_rc_timer(
+ 
+     nv_printf(NV_DBG_INFO, "NVRM: stopping rc timer\n");
+     nv->rc_timer_enabled = 0;
+-    del_timer_sync(&nvl->rc_timer.kernel_timer);
++    nv_timer_delete_sync(&nvl->rc_timer.kernel_timer);
+     nv_printf(NV_DBG_INFO, "NVRM: rc timer stopped\n");
+ 
+     return 0;
+@@ -3779,7 +3779,7 @@ void NV_API_CALL nv_stop_snapshot_timer(void)
+     NV_SPIN_UNLOCK_IRQRESTORE(&nvl->snapshot_timer_lock, flags);
+ 
+     if (timer_active)
+-        del_timer_sync(&nvl->snapshot_timer.kernel_timer);
++        nv_timer_delete_sync(&nvl->snapshot_timer.kernel_timer);
+ }
+ 
+ void NV_API_CALL nv_flush_snapshot_timer(void)
+diff --git a/nvidia/nvidia.Kbuild b/nvidia/nvidia.Kbuild
+index ad48ed47..cd76b8ae 100644
+--- ./kernel/nvidia/nvidia.Kbuild
++++ ./kernel/nvidia/nvidia.Kbuild
+@@ -207,6 +207,8 @@ NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_tsec_comms_free_gscco_mem
+ NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_memory_block_size_bytes
+ NV_CONFTEST_SYMBOL_COMPILE_TESTS += crypto
+ NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_follow_pte
++NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_timer_delete_sync
++NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_hrtimer_setup
+ 
+ NV_CONFTEST_TYPE_COMPILE_TESTS += dma_ops
+ NV_CONFTEST_TYPE_COMPILE_TESTS += swiotlb_dma_ops
+
+From 1c99b44946a7644192b7675818358e01e41a9944 Mon Sep 17 00:00:00 2001
+From: Andreas Beckmann <anbe@debian.org>
+Date: Thu, 19 Jun 2025 10:20:07 +0200
+Subject: [PATCH] backport nv_vma_start_write changes from 570.169
+
+---
+ common/inc/nv-mm.h           | 23 +++++++++++-
+ nvidia-drm/nvidia-drm.Kbuild |  1 +
+ nvidia/nv-mmap.c             | 72 ++++++++++++++++++++++++++++++++++++
+ nvidia/nvidia.Kbuild         |  1 +
+ 4 files changed, 95 insertions(+), 2 deletions(-)
+
+diff --git a/common/inc/nv-mm.h b/common/inc/nv-mm.h
+index fbdf2371..b69f52bb 100644
+--- ./kernel/common/inc/nv-mm.h
++++ ./kernel/common/inc/nv-mm.h
+@@ -292,9 +292,25 @@ static inline struct rw_semaphore *nv_mmap_get_lock(struct mm_struct *mm)
+ #endif
+ }
+ 
++#if NV_IS_EXPORT_SYMBOL_GPL___vma_start_write
++#define NV_CAN_CALL_VMA_START_WRITE 0
++#else // NV_IS_EXPORT_SYMBOL_GPL___vma_start_write
++#define NV_CAN_CALL_VMA_START_WRITE 1
++#endif
++
++#if !NV_CAN_CALL_VMA_START_WRITE
++/*
++ * Commit 45ad9f5290dc updated vma_start_write() to call __vma_start_write().
++ */
++void nv_vma_start_write(struct vm_area_struct *);
++#endif
++
+ static inline void nv_vm_flags_set(struct vm_area_struct *vma, vm_flags_t flags)
+ {
+-#if defined(NV_VM_AREA_STRUCT_HAS_CONST_VM_FLAGS)
++#if !NV_CAN_CALL_VMA_START_WRITE
++    nv_vma_start_write(vma);
++    ACCESS_PRIVATE(vma, __vm_flags) |= flags;
++#elif defined(NV_VM_AREA_STRUCT_HAS_CONST_VM_FLAGS)
+     vm_flags_set(vma, flags);
+ #else
+     vma->vm_flags |= flags;
+@@ -303,7 +319,10 @@ static inline void nv_vm_flags_set(struct vm_area_struct *vma, vm_flags_t flags)
+ 
+ static inline void nv_vm_flags_clear(struct vm_area_struct *vma, vm_flags_t flags)
+ {
+-#if defined(NV_VM_AREA_STRUCT_HAS_CONST_VM_FLAGS)
++#if !NV_CAN_CALL_VMA_START_WRITE
++    nv_vma_start_write(vma);
++    ACCESS_PRIVATE(vma, __vm_flags) &= ~flags;
++#elif defined(NV_VM_AREA_STRUCT_HAS_CONST_VM_FLAGS)
+     vm_flags_clear(vma, flags);
+ #else
+     vma->vm_flags &= ~flags;
+diff --git a/nvidia-drm/nvidia-drm.Kbuild b/nvidia-drm/nvidia-drm.Kbuild
+index d21b6b33..6da3e47c 100644
+--- ./kernel/nvidia-drm/nvidia-drm.Kbuild
++++ ./kernel/nvidia-drm/nvidia-drm.Kbuild
+@@ -56,6 +56,7 @@ NV_CONFTEST_GENERIC_COMPILE_TESTS += is_export_symbol_gpl_refcount_dec_and_test
+ NV_CONFTEST_GENERIC_COMPILE_TESTS += drm_alpha_blending_available
+ NV_CONFTEST_GENERIC_COMPILE_TESTS += is_export_symbol_present_drm_gem_prime_fd_to_handle
+ NV_CONFTEST_GENERIC_COMPILE_TESTS += is_export_symbol_present_drm_gem_prime_handle_to_fd
++NV_CONFTEST_GENERIC_COMPILE_TESTS += is_export_symbol_gpl___vma_start_write
+ 
+ NV_CONFTEST_FUNCTION_COMPILE_TESTS += drm_dev_unref
+ NV_CONFTEST_FUNCTION_COMPILE_TESTS += drm_reinit_primary_mode_group
+diff --git a/nvidia/nv-mmap.c b/nvidia/nv-mmap.c
+index 5596c8f9..8ee4b3c5 100644
+--- ./kernel/nvidia/nv-mmap.c
++++ ./kernel/nvidia/nv-mmap.c
+@@ -795,3 +795,75 @@ void NV_API_CALL nv_set_safe_to_mmap_locked(
+ 
+     nvl->safe_to_mmap = safe_to_mmap;
+ }
++
++#if !NV_CAN_CALL_VMA_START_WRITE
++static NvBool nv_vma_enter_locked(struct vm_area_struct *vma, NvBool detaching)
++{
++    NvU32 tgt_refcnt = VMA_LOCK_OFFSET;
++    NvBool interrupted = NV_FALSE;
++    if (!detaching)
++    {
++        tgt_refcnt++;
++    }
++    if (!refcount_add_not_zero(VMA_LOCK_OFFSET, &vma->vm_refcnt))
++    {
++        return NV_FALSE;
++    }
++
++    rwsem_acquire(&vma->vmlock_dep_map, 0, 0, _RET_IP_);
++    prepare_to_rcuwait(&vma->vm_mm->vma_writer_wait);
++
++    for (;;)
++    {
++        set_current_state(TASK_UNINTERRUPTIBLE);
++        if (refcount_read(&vma->vm_refcnt) == tgt_refcnt)
++            break;
++
++        if (signal_pending_state(TASK_UNINTERRUPTIBLE, current))
++        {
++            interrupted = NV_TRUE;
++            break;
++        }
++
++        schedule();
++    }
++
++    // This is an open-coded version of finish_rcuwait().
++    rcu_assign_pointer(vma->vm_mm->vma_writer_wait.task, NULL);
++    __set_current_state(TASK_RUNNING);
++
++    if (interrupted)
++    {
++        // Clean up on error: release refcount and dep_map
++        refcount_sub_and_test(VMA_LOCK_OFFSET, &vma->vm_refcnt);
++        rwsem_release(&vma->vmlock_dep_map, _RET_IP_);
++        return NV_FALSE;
++    }
++
++    lock_acquired(&vma->vmlock_dep_map, _RET_IP_);
++    return NV_TRUE;
++}
++
++/*
++ * Helper function to handle VMA locking and refcount management.
++ */
++void nv_vma_start_write(struct vm_area_struct *vma)
++{
++    NvU32 mm_lock_seq;
++    NvBool locked;
++    if (__is_vma_write_locked(vma, &mm_lock_seq))
++        return;
++
++    locked = nv_vma_enter_locked(vma, NV_FALSE);
++
++    WRITE_ONCE(vma->vm_lock_seq, mm_lock_seq);
++    if (locked)
++    {
++        NvBool detached;
++        detached = refcount_sub_and_test(VMA_LOCK_OFFSET, &vma->vm_refcnt);
++        rwsem_release(&vma->vmlock_dep_map, _RET_IP_);
++        WARN_ON_ONCE(detached);
++    }
++}
++EXPORT_SYMBOL(nv_vma_start_write);
++#endif // !NV_CAN_CALL_VMA_START_WRITE
+diff --git a/nvidia/nvidia.Kbuild b/nvidia/nvidia.Kbuild
+index cd76b8ae..1e349778 100644
+--- ./kernel/nvidia/nvidia.Kbuild
++++ ./kernel/nvidia/nvidia.Kbuild
+@@ -209,6 +209,7 @@  NV_CONFTEST_SYMBOL_COMPILE_TESTS += crypto
+ NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_follow_pte
+ NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_timer_delete_sync
+ NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_present_hrtimer_setup
++NV_CONFTEST_SYMBOL_COMPILE_TESTS += is_export_symbol_gpl___vma_start_write
+ 
+ NV_CONFTEST_TYPE_COMPILE_TESTS += dma_ops
+ NV_CONFTEST_TYPE_COMPILE_TESTS += swiotlb_dma_ops
+
+Author: Andreas Beckmann <anbe@debian.org>
+Author: Tomas Janousek <tomi@nomi.cz>
+Description: use KBUILD_CFLAGS and (KBUILD_)LDFLAGS
+ skip $(GCC_PLUGINS_CFLAGS): fixes build failure when a kernel
+ is built with CONFIG_GCC_PLUGINS, CONFIG_GCC_PLUGIN_STRUCTLEAK
+ and CONFIG_GCC_PLUGIN_RANDSTRUCT -- Tomas Janousek
+ .
+ ensure some defined strings retain enclosing double quotes
+
+--- ./kernel/Kbuild
++++ ./kernel/Kbuild
+@@ -142,6 +142,15 @@ endif
+ CC ?= cc
+ LD ?= ld
+ 
++NV_REMOVE_KBUILD_CFLAGS = $(GCC_PLUGINS_CFLAGS)
++
++NV_CFLAGS_FROM_KBUILD = \
++	$(patsubst -DARM64_ASM_ARCH=%,-DARM64_ASM_ARCH="%",\
++	$(filter-out $(NV_REMOVE_KBUILD_CFLAGS),\
++	$(KBUILD_CFLAGS)\
++	)\
++	)
++
+ NV_CONFTEST_SCRIPT := $(src)/conftest.sh
+ NV_CONFTEST_HEADER := $(obj)/conftest/headers.h
+ 
+--- ./kernel/nvidia/nvidia.Kbuild
++++ ./kernel/nvidia/nvidia.Kbuild
+@@ -100,7 +100,7 @@ always += $(NVIDIA_INTERFACE)
+ always-y += $(NVIDIA_INTERFACE)
+ 
+ $(obj)/$(NVIDIA_INTERFACE): $(addprefix $(obj)/,$(NVIDIA_OBJECTS))
+-	$(LD) -r -o $@ $^
++	$(LD) $(or $(KBUILD_LDFLAGS),$(LDFLAGS)) -r -o $@ $^
+ 
+ 
+ #
+--- ./kernel/Makefile
++++ ./kernel/Makefile
+@@ -125,7 +125,7 @@ else
+   # cannot be defined in the *Kbuild files, which are only used during stage 1.
+ 
+   %-linux.o: modules
+-	$(LD) $(NV_MODULE_COMMON_SCRIPTS) -r -o $@ \
++	$(LD) $(or $(KBUILD_LDFLAGS),$(LDFLAGS)) $(NV_MODULE_COMMON_SCRIPTS) -r -o $@ \
+ 	  $(subst nv,nvidia,$*).mod.o $(subst nv,nvidia,$*)/$*-interface.o
+ 
+   # Kbuild's "clean" rule won't clean up the conftest headers on its own, and
+--- ./kernel/nvidia-modeset/nvidia-modeset.Kbuild
++++ ./kernel/nvidia-modeset/nvidia-modeset.Kbuild
+@@ -74,7 +74,7 @@ always += $(NVIDIA_MODESET_INTERFACE)
+ always-y += $(NVIDIA_MODESET_INTERFACE)
+ 
+ $(obj)/$(NVIDIA_MODESET_INTERFACE): $(addprefix $(obj)/,$(NVIDIA_MODESET_OBJECTS))
+-	$(LD) -r -o $@ $^
++	$(LD) $(or $(KBUILD_LDFLAGS),$(LDFLAGS)) -r -o $@ $^
+ 
+ #
+ # Register the conftests needed by nvidia-modeset.ko
+
+From f93c98b0ce4185c640ac60829b06a609913bba3d Mon Sep 17 00:00:00 2001
+From: Andreas Beckmann <anbe@debian.org>
+Date: Fri, 18 Oct 2024 00:04:11 +0200
+Subject: [PATCH] backport nv_get_kern_phys_address() changes from 555.42.02
+
+---
+ nvidia/nv-vtophys.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/nvidia/nv-vtophys.c b/nvidia/nv-vtophys.c
+index df2a01e..fcae701 100644
+--- ./kernel/nvidia/nv-vtophys.c
++++ ./kernel/nvidia/nv-vtophys.c
+@@ -29,7 +29,7 @@
+ NvU64 NV_API_CALL nv_get_kern_phys_address(NvU64 address)
+ {
+     /* direct-mapped kernel address */
+-    if (virt_addr_valid(address))
++    if (virt_addr_valid((void *)address))
+         return __pa(address);
+ 
+     nv_printf(NV_DBG_ERRORS,
+Author: Luca Boccassi <luca.boccassi@gmail.com>
+Description: let Kbuild set the compiler version
+ If CC=cc is passed to make, the default system compiler will be used. But we
+ want to build the kernel modules with the same compiler version used to build
+ the kernel itself. Remove the CC parameter from upstream's Makefile's make
+ invocation.
+
+--- ./kernel/Makefile
++++ ./kernel/Makefile
+@@ -89,8 +89,8 @@ else
+ 
+   .PHONY: modules module clean clean_conftest modules_install
+   modules clean modules_install:
+-	@$(MAKE) "LD=$(LD)" "CC=$(CC)" "OBJDUMP=$(OBJDUMP)" $(KBUILD_PARAMS) $@
+-	@if [ "$@" = "modules" ]; then \
++	$(MAKE) $(KBUILD_PARAMS) $@
++	@set -x; if [ "$@" = "modules" ]; then \
+ 	  for module in $(NV_KERNEL_MODULES); do \
+ 	    if [ -x split-object-file.sh ]; then \
+ 	      ./split-object-file.sh $$module.ko; \
+--- ./kernel/Kbuild
++++ ./kernel/Kbuild
+@@ -146,7 +146,7 @@ NV_CONFTEST_SCRIPT := $(src)/conftest.sh
+ NV_CONFTEST_HEADER := $(obj)/conftest/headers.h
+ 
+ NV_CONFTEST_CMD := /bin/sh $(NV_CONFTEST_SCRIPT) \
+- "$(CC)" $(ARCH) $(NV_KERNEL_SOURCES) $(NV_KERNEL_OUTPUT)
++ "$(strip $(CC))" $(ARCH) $(NV_KERNEL_SOURCES) $(NV_KERNEL_OUTPUT)
+ 
+ NV_CFLAGS_FROM_CONFTEST := $(shell $(NV_CONFTEST_CMD) build_cflags)
+ 
+
+
+
+
