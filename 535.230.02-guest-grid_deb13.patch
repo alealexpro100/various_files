@@ -5,7 +5,9 @@ Its dirty patch, but seems to be working (tested ONLY ollama).
 Note that it has build problems (only examples, there are many of them):
 vidia-modeset.o: warning: objtool: _nv000124kms+0x22: 'naked' return found in MITIGATION_RETHUNK build
 nvidia.o: warning: objtool: _nv015572rm+0x76: 'naked' return found in MITIGATION_RETHUNK build
---- /root/vgpu-kvm-orig/kernel/Kbuild   2024-12-20 22:51:20.000000000 +0000
+Tried to merge changes from nvidia open-gpu-kernel-modules (branch 535), but it did not fix this error.
+See https://github.com/NVIDIA/open-gpu-kernel-modules/issues/341. Seems to breaking framebuffer only (is it used for vGPU?)
+--- ./kernel/Kbuild   2024-12-20 22:51:20.000000000 +0000
 +++ ./kernel/Kbuild     2025-11-16 15:26:57.815351094 +0000
 @@ -79,66 +79,66 @@
  # Define CFLAGS that apply to all the NVIDIA kernel modules. EXTRA_CFLAGS
@@ -518,7 +520,176 @@ Description: let Kbuild set the compiler version
  
  NV_CFLAGS_FROM_CONFTEST := $(shell $(NV_CONFTEST_CMD) build_cflags)
  
+Based on 2ccbad25e1af6a6ee6f38cf569f89f8b65d658ab https://github.com/NVIDIA/open-gpu-kernel-modules.git (also branch 535 could be used)
+Fixes compilation on debian trixie backports (v6.17)
+--- ./kernel/conftest.sh        2024-12-20 23:12:22.000000000 +0000
++++ /root/patched/NVIDIA-Linux-x86_64-535.230.02-grid-custom/kernel/conftest.sh 2026-01-18 16:58:18.964777879 +0000
+@@ -6547,6 +6547,72 @@
+             compile_check_conftest "$CODE" "NV_FOLIO_TEST_SWAPCACHE_PRESENT" "" "functions"
+         ;;
 
++        drm_fb_create_takes_format_info)
++            #
++            # Determine if a `struct drm_format_info *` is passed into
++            # the .fb_create callback. If so, it will have 4 arguments.
++            # This parameter was added in commit 81112eaac559 ("drm:
++            # Pass the format info to .fb_create") in linux-next
++            # (2025-07-16)
++            CODE="
++            #include <drm/drm_mode_config.h>
++            #include <drm/drm_framebuffer.h>
++
++            static const struct drm_mode_config_funcs funcs;
++            void conftest_drm_fb_create_takes_format_info(void) {
++                funcs.fb_create(NULL, NULL, NULL, NULL);
++            }"
++
++            compile_check_conftest "$CODE" "NV_DRM_FB_CREATE_TAKES_FORMAT_INFO" "" "types"
++        ;;
++
++        drm_driver_has_date)
++            #
++            # Determine if the 'drm_driver' structure has a 'date' field.
++            #
++            # Removed by commit cb2e1c2136f7 ("drm: remove driver date from
++            # struct drm_driver and all drivers") in linux-next, expected in
++            # v6.14.
++            #
++            CODE="
++            #if defined(NV_DRM_DRMP_H_PRESENT)
++            #include <drm/drmP.h>
++            #endif
++
++            #include <drm/drm_drv.h>
++
++            int conftest_drm_driver_has_date(void) {
++                return offsetof(struct drm_driver, date);
++            }"
++
++            compile_check_conftest "$CODE" "NV_DRM_DRIVER_HAS_DATE" "" "types"
++        ;;
++
++        drm_connector_helper_funcs_mode_valid_has_const_mode_arg)
++            #
++            # Determine if the 'mode' pointer argument is const in
++            # drm_connector_helper_funcs::mode_valid.
++            #
++            # The 'mode' pointer argument in
++            # drm_connector_helper_funcs::mode_valid was made const by commit
++            # 26d6fd81916e ("drm/connector: make mode_valid take a const struct
++            # drm_display_mode") in linux-next, expected in v6.15.
++            #
++            CODE="
++            #include <drm/drm_atomic_helper.h>
++
++            static int conftest_drm_connector_mode_valid(struct drm_connector *connector,
++                                                         const struct drm_display_mode *mode) {
++                return 0;
++            }
++
++            const struct drm_connector_helper_funcs conftest_drm_connector_helper_funcs = {
++                .mode_valid = conftest_drm_connector_mode_valid,
++            };"
++
++            compile_check_conftest "$CODE" "NV_DRM_CONNECTOR_HELPER_FUNCS_MODE_VALID_HAS_CONST_MODE_ARG" "" "types"
++        ;;
++
+         # When adding a new conftest entry, please use the correct format for
+         # specifying the relevant upstream Linux kernel commit.
+         #
+diff -Naru ./kernel/nvidia-drm/nvidia-drm-connector.c /root/patched/NVIDIA-Linux-x86_64-535.230.02-grid-custom/kernel/nvidia-drm/nvidia-drm-connector.c
+--- ./kernel/nvidia-drm/nvidia-drm-connector.c  2024-12-20 21:54:36.000000000 +0000
++++ /root/patched/NVIDIA-Linux-x86_64-535.230.02-grid-custom/kernel/nvidia-drm/nvidia-drm-connector.c   2026-01-18 16:57:17.180592196 +0000
+@@ -314,7 +314,11 @@
+ }
 
+ static int nv_drm_connector_mode_valid(struct drm_connector    *connector,
++#if defined(NV_DRM_CONNECTOR_HELPER_FUNCS_MODE_VALID_HAS_CONST_MODE_ARG)
++                                       const struct drm_display_mode *mode)
++#else
+                                        struct drm_display_mode *mode)
++#endif
+ {
+     struct drm_device *dev = connector->dev;
+     struct nv_drm_device *nv_dev = to_nv_device(dev);
+diff -Naru ./kernel/nvidia-drm/nvidia-drm-drv.c /root/patched/NVIDIA-Linux-x86_64-535.230.02-grid-custom/kernel/nvidia-drm/nvidia-drm-drv.c
+--- ./kernel/nvidia-drm/nvidia-drm-drv.c        2024-12-20 21:54:35.000000000 +0000
++++ /root/patched/NVIDIA-Linux-x86_64-535.230.02-grid-custom/kernel/nvidia-drm/nvidia-drm-drv.c 2026-01-18 16:55:40.244730745 +0000
+@@ -154,6 +154,9 @@
+ static struct drm_framebuffer *nv_drm_framebuffer_create(
+     struct drm_device *dev,
+     struct drm_file *file,
++    #if defined(NV_DRM_FB_CREATE_TAKES_FORMAT_INFO)
++    const struct drm_format_info *info,
++    #endif
+     #if defined(NV_DRM_HELPER_MODE_FILL_FB_STRUCT_HAS_CONST_MODE_CMD_ARG)
+     const struct drm_mode_fb_cmd2 *cmd
+     #else
+@@ -169,6 +172,9 @@
+     fb = nv_drm_internal_framebuffer_create(
+             dev,
+             file,
++            #if defined(NV_DRM_FB_CREATE_TAKES_FORMAT_INFO)
++            info,
++            #endif
+             &local_cmd);
 
+     #if !defined(NV_DRM_HELPER_MODE_FILL_FB_STRUCT_HAS_CONST_MODE_CMD_ARG)
+@@ -1439,7 +1445,9 @@
+     .name                   = "nvidia-drm",
 
+     .desc                   = "NVIDIA DRM driver",
++#if defined(NV_DRM_DRIVER_HAS_DATE)
+     .date                   = "20160202",
++#endif
+
+ #if defined(NV_DRM_DRIVER_HAS_DEVICE_LIST)
+     .device_list            = LIST_HEAD_INIT(nv_drm_driver.device_list),
+diff -Naru ./kernel/nvidia-drm/nvidia-drm-fb.c /root/patched/NVIDIA-Linux-x86_64-535.230.02-grid-custom/kernel/nvidia-drm/nvidia-drm-fb.c
+--- ./kernel/nvidia-drm/nvidia-drm-fb.c 2024-12-20 21:54:36.000000000 +0000
++++ /root/patched/NVIDIA-Linux-x86_64-535.230.02-grid-custom/kernel/nvidia-drm/nvidia-drm-fb.c  2026-01-18 16:41:30.730705221 +0000
+@@ -206,6 +206,9 @@
+ struct drm_framebuffer *nv_drm_internal_framebuffer_create(
+     struct drm_device *dev,
+     struct drm_file *file,
++#if defined(NV_DRM_FB_CREATE_TAKES_FORMAT_INFO)
++    const struct drm_format_info *info,
++#endif
+     struct drm_mode_fb_cmd2 *cmd)
+ {
+     struct nv_drm_device *nv_dev = to_nv_device(dev);
+@@ -259,6 +262,9 @@
+         dev,
+         #endif
+         &nv_fb->base,
++        #if defined(NV_DRM_FB_CREATE_TAKES_FORMAT_INFO)
++        info,
++        #endif
+         cmd);
+
+     /*
+diff -Naru ./kernel/nvidia-drm/nvidia-drm-fb.h /root/patched/NVIDIA-Linux-x86_64-535.230.02-grid-custom/kernel/nvidia-drm/nvidia-drm-fb.h
+--- ./kernel/nvidia-drm/nvidia-drm-fb.h 2024-12-20 21:54:34.000000000 +0000
++++ /root/patched/NVIDIA-Linux-x86_64-535.230.02-grid-custom/kernel/nvidia-drm/nvidia-drm-fb.h  2026-01-18 16:40:41.519102159 +0000
+@@ -59,6 +59,9 @@
+ struct drm_framebuffer *nv_drm_internal_framebuffer_create(
+     struct drm_device *dev,
+     struct drm_file *file,
++#if defined(NV_DRM_FB_CREATE_TAKES_FORMAT_INFO)
++    const struct drm_format_info *info,
++#endif
+     struct drm_mode_fb_cmd2 *cmd);
+
+ #endif /* NV_DRM_ATOMIC_MODESET_AVAILABLE */
+diff -Naru ./kernel/nvidia-drm/nvidia-drm.Kbuild /root/patched/NVIDIA-Linux-x86_64-535.230.02-grid-custom/kernel/nvidia-drm/nvidia-drm.Kbuild
+--- ./kernel/nvidia-drm/nvidia-drm.Kbuild       2026-01-18 14:04:56.000000000 +0000
++++ /root/patched/NVIDIA-Linux-x86_64-535.230.02-grid-custom/kernel/nvidia-drm/nvidia-drm.Kbuild        2026-01-18 16:58:40.968551453 +0000
+@@ -136,4 +136,7 @@
+ NV_CONFTEST_TYPE_COMPILE_TESTS += drm_driver_has_dumb_destroy
+ NV_CONFTEST_TYPE_COMPILE_TESTS += drm_unlocked_ioctl_flag_present
+ NV_CONFTEST_TYPE_COMPILE_TESTS += drm_output_poll_changed
++NV_CONFTEST_TYPE_COMPILE_TESTS += drm_driver_has_date
++NV_CONFTEST_TYPE_COMPILE_TESTS += drm_connector_helper_funcs_mode_valid_has_const_mode_arg
++NV_CONFTEST_TYPE_COMPILE_TESTS += drm_fb_create_takes_format_info
+ NV_CONFTEST_TYPE_COMPILE_TESTS += file_operations_fop_unsigned_offset_present
+ 
